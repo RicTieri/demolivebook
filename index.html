@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ebook demo con turn.js</title>
+  <!-- jQuery (come negli esempi) -->
+  <script type="text/javascript" src="https://code.jquery.com/jquery-1.7.1.min.js"></script>
+  <!-- turn.js dalla root della repo -->
+  <script type="text/javascript" src="../../turn.min.js"></script>
+
+  <style type="text/css">
+    :root {
+      --bg: #2b2b2b;
+      --paper: #ffffff;
+      --ui: #e9e9e9;
+      --ui-ink: #111;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      /* Sfondo carta leggero che riprende le pagine */
+      background-color: #f4f1ea;
+      background-image:
+        radial-gradient(1000px 600px at 50% -10%, rgba(255,255,255,.7), rgba(255,255,255,0) 70%),
+        radial-gradient(800px 300px at 50% 120%, rgba(0,0,0,.06), rgba(0,0,0,0) 60%),
+        linear-gradient(180deg, #f7f5f0 0%, #eee8df 100%);
+      background-attachment: fixed, fixed, fixed;
+      color: #222;
+      font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+    }
+
+    .wrap {
+      height: 100%;
+      width: 100%;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 8px;
+      align-items: center;
+      justify-items: center;
+      padding: 10px;
+    }
+
+    header, footer {
+      width: 100%;
+      max-width: 1200px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #444;
+    }
+    header h1 { font-size: 16px; margin: 0; font-weight: 600; color: #333; }
+    header .hint { opacity: .9; font-size: 12px; color: #666; }
+
+    /* Area del libro */
+    #book {
+      background: transparent;
+      border-radius: 12px;
+      overflow: hidden; /* arrotonda gli angoli anche durante l'animazione */
+      border: 1px solid rgba(0,0,0,.08);
+      /* width/height impostati via JS per mantenere il ratio */
+    }
+    /* Pagine del libro */
+    #book .turn-page {
+      background-color: var(--paper);
+      background-position: center center;
+      background-repeat: no-repeat;
+      /* contain per non deformare le immagini; margini bianchi dove serve */
+      background-size: contain;
+      border-radius: inherit;
+      box-shadow: 0 15px 40px rgba(0, 0, 0, 0.733);
+    }
+
+    /* Controlli */
+    .controls {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      background: rgba(0,0,0,.05);
+      border: 1px solid rgba(0,0,0,.08);
+      backdrop-filter: blur(2px);
+    }
+    .btn {
+      appearance: none;
+      border: 1px solid var(--ui);
+      background: #fff;
+      color: var(--ui-ink);
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform .06s ease, background .2s ease;
+    }
+    .btn:hover { background: #f6f6f6; }
+    .btn:active { transform: translateY(1px); }
+    .counter { min-width: 80px; text-align: center; font-variant-numeric: tabular-nums; }
+
+    /* Piccoli schermi: limitiamo la larghezza massima del libro */
+    @media (max-width: 640px) {
+      header h1 { font-size: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Ebook demo</h1>
+      <div class="hint">Freccia sinistra/destra per cambiare pagina</div>
+    </header>
+
+    <div id="book"></div>
+
+    <footer>
+      <div class="controls">
+        <button class="btn" id="prev" title="Pagina precedente">⟨</button>
+        <span class="counter" id="page-counter">1 / 1</span>
+        <button class="btn" id="next" title="Pagina successiva">⟩</button>
+      </div>
+    </footer>
+  </div>
+
+  <script type="text/javascript">
+    (function(){
+      // Elenco pagine dell'ebook (ordine di lettura)
+      var pages = [
+        '/images/copertina.webp',
+        '/images/pag1.jpg',
+        '/images/pag2.jpg',
+        '/images/pag3.jpg',
+        '/images/pag4.jpg',
+        '/images/pag5.png',
+        '/images/pag6.png',
+        '/images/pag7.webp',
+        '/images/pag8.webp',
+        '/images/pag9.jpg',
+        '/images/pag10.jpg',
+        '/images/pag11.jpg',
+        '/images/pag12.jpg'
+      ];
+
+  var $book = $('#book');
+  var mode = null; // 'single' | 'double'
+
+      // Crea i DIV delle pagine con lo sfondo impostato
+      for (var i = 0; i < pages.length; i++) {
+        var $p = $('<div />');
+        $p.css('background-image', 'url(' + pages[i] + ')');
+        $book.append($p);
+      }
+
+      // Imposta dimensioni coerenti con il rapporto usato nelle demo (circa 576x752 per pagina singola)
+      var RATIO = 752 / 576; // h / w ≈ 1.305
+      function computeMode() {
+        var vw = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+        var vh = Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0);
+        var landscape = vw > vh;
+        var large = vw >= 900; // soglia desktop
+        return (landscape || large) ? 'double' : 'single';
+      }
+
+      function fitSize(currentMode) {
+        var vw = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+        var vh = Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0);
+
+        var maxW = Math.min(1200, vw * 0.96);
+        var maxH = vh * 0.80; // lascia spazio a header/footer
+
+        // calcola width/height mantenendo il ratio
+        var w, h;
+        if (currentMode === 'double') {
+          // due pagine affiancate: larghezza doppia, stessa altezza
+          // dimensioni pagina singola = pw x ph (ph/pw = RATIO)
+          // contenitore = 2*pw x ph
+          // vincolo su maxW/maxH
+          // 2*pw <= maxW => pw <= maxW/2; ph = pw*RATIO
+          // ph <= maxH => pw <= maxH/RATIO
+          var pw = Math.min(maxW/2, maxH / RATIO);
+          var ph = pw * RATIO;
+          w = 2 * pw;
+          h = ph;
+        } else {
+          // singola pagina
+          w = maxW;
+          h = w * RATIO;
+          if (h > maxH) {
+            h = maxH;
+            w = h / RATIO;
+          }
+        }
+
+        // turn.js accetta size in px sul container
+        $book.width(Math.round(w));
+        $book.height(Math.round(h));
+
+        try {
+          // se già inizializzato, aggiorna la size
+          if ($book.data('turn')) {
+            $book.turn('size', Math.round(w), Math.round(h));
+          }
+        } catch (e) {
+          // ignora: alcune versioni potrebbero non avere il metodo
+        }
+      }
+
+      // Inizializza
+      $(window).ready(function() {
+        // inizializzazione con modalità in base al viewport
+        mode = computeMode();
+        fitSize(mode);
+        $book.turn({
+          display: mode,
+          acceleration: true,
+          gradients: !$.isTouch,
+          elevation: 50,
+          when: {
+            turned: function(e, page) { updateCounter(); }
+          }
+        });
+
+        updateCounter();
+      });
+
+      // Controlli
+      function updateCounter(){
+        var total = $book.turn('pages') || pages.length;
+        var current = $book.turn('page') || 1;
+        $('#page-counter').text(current + ' / ' + total);
+      }
+
+      $('#prev').on('click', function(){ $book.turn('previous'); });
+      $('#next').on('click', function(){ $book.turn('next'); });
+
+      $(window).on('keydown', function(e){
+        if (e.keyCode === 37) $book.turn('previous');
+        else if (e.keyCode === 39) $book.turn('next');
+      });
+
+      // Resize e cambio orientamento: eventuale switch tra single/double
+      var resizeTick;
+      $(window).on('resize orientationchange', function(){
+        clearTimeout(resizeTick);
+        resizeTick = setTimeout(function(){
+          var newMode = computeMode();
+          if (newMode !== mode) {
+            // salva la pagina corrente, reinizializza con nuovo display, ripristina pagina
+            var current = $book.turn('page') || 1;
+            try { $book.turn('destroy').remove(); } catch(e) {}
+            // ricrea il container e reinserisci le pagine esistenti
+            $book = $('<div id="book" />');
+            $('.wrap header').next().replaceWith($book);
+            for (var i = 0; i < pages.length; i++) {
+              var $p = $('<div />');
+              $p.css('background-image', 'url(' + pages[i] + ')');
+              $book.append($p);
+            }
+            mode = newMode;
+            fitSize(mode);
+            $book.turn({
+              display: mode,
+              acceleration: true,
+              gradients: !$.isTouch,
+              elevation: 50,
+              when: { turned: function(e, page){ updateCounter(); } }
+            });
+            // mappa pagina alla nuova modalità: su switch double->single e viceversa, mantieni più possibile
+            var target = current;
+            $book.turn('page', target);
+            updateCounter();
+          } else {
+            fitSize(mode);
+          }
+        }, 100);
+      });
+    })();
+  </script>
+</body>
+</html>
